@@ -95,8 +95,14 @@ function Set-TargetResource
             if($Firewall)
             {
                 $HostValue = $ServerURL.Split("//")[2].Split(":")[0]
-                if([System.Net.IPAddress]::Parse($HostValue)){$HostIP = $HostValue}
-                else {$HostIP = [System.Net.DNS]::GetHostAddresses($HostValue)[0]}
+                try
+                {
+                    if([System.Net.IPAddress]::Parse($HostValue)){$HostIP = $HostValue}
+                    
+                }catch{
+                    Write-Verbose "Hostname attempted was not a valid IP. Trying with Hostname"
+                    $HostIP = [System.Net.DNS]::GetHostAddresses($HostValue)[0]
+                }
                 Write-Verbose $HostIP
                 if (Get-NetFirewallRule | Where-Object DisplayName -like "TeamCityPort: $AgentPort")
                 {Set-NetFirewallRule -DisplayName "TeamCityPort: $AgentPort" -Direction Inbound -Protocol TCP -LocalPort $AgentPort -RemoteAddress $HostIP -Action Allow}
