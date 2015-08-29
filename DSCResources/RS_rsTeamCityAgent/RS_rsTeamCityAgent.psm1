@@ -19,8 +19,8 @@ function Get-TargetResource
 
 
     $PathCheck = (Test-path $AgentPath)
-    $ServiceCheck = (Get-Service | where-object Name -Like "TCBuildAgent*").count -gt 0
-    $ServiceStatus = (Get-Service | where-object Name -Like "TCBuildAgent*").Status -eq $AgentStatus
+    $ServiceCheck = (Get-Service | where-object DisplayName -Like "TeamCity Build Agent: $AgentName").count -gt 0
+    $ServiceStatus = (Get-Service | where-object DisplayName -Like "TeamCity Build Agent: $AgentName").Status -eq $AgentStatus
     $PortListen = [bool](Get-NetTCPConnection | Where-Object LocalPort -eq $AgentPort)
     if($Firewall -eq $true)
     {$FirewallCheck = [bool](Get-NetFirewallRule | Where-Object DisplayName -like "TeamCityPort: $AgentPort")}
@@ -69,7 +69,7 @@ function Set-TargetResource
         if (-not (Test-path $($AgentPath + "\conf\buildAgent.properties")))
         {
             Invoke-WebRequest -URI $($ServerURL + "update/buildAgent.zip") -Method GET -OutFile $env:TEMP\buildAgent.zip -ErrorAction SilentlyContinue
-            Extract-ZipFile -Zipfile $env:TEMP\BuildAgent.zip -DestinationPath C:\BuildAgent
+            Extract-ZipFile -Zipfile $env:TEMP\BuildAgent.zip -DestinationPath $AgentPath
             Remove-Item -Path $env:TEMP\buildAgent.zip -Force
             $buildagentconfig = (Get-content -Path $($AgentPath + "\conf\buildAgent.dist.properties")) | Foreach-Object {
                 $_ -replace 'serverUrl=http://localhost:8111/',"serverUrl=$ServerUrl" `
@@ -79,7 +79,12 @@ function Set-TargetResource
                 -replace 'tempDir=../temp',"tempDir=$tempDir" `
                 -replace 'systemDir=../system',"systemDir=$systemDir"
                 } | Set-Content $($AgentPath + "\conf\buildAgent.properties")
-
+            $installwrapperconfig = (Get-content -Path $($AgentPath + "\launcher\conf\wrapper.conf")) | ForEach-Object {
+                if(!($_ -match $AgentName)){
+                $_ -replace 'wrapper.console.title=TeamCity Build Agent',"wrapper.console.title=TeamCity Build Agent: $AgentName" `
+                -replace'wrapper.ntservice.name=TCBuildAgent',"wrapper.ntservice.name=TCBuildAgent: $AgentName" `
+                -replace'wrapper.ntservice.displayname=TeamCity Build Agent',"wrapper.ntservice.displayname=TeamCity Build Agent: $AgentName" `
+                }} | Set-Content $($AgentPath + "\launcher\conf\wrapper.conf")
             Try{
                 cd ($AgentPath + "\bin")
                 & $($AgentPath + "\bin\service.install.bat")
@@ -102,7 +107,7 @@ function Set-TargetResource
     }
     else
     {
-        While (Get-Service | where-object Name -Like "TCBuildAgent*")
+        While (Get-Service | where-object DisplayName -Like "TeamCity Build Agent: $AgentName")
         {
             Write-Verbose "Setting TeamCity Agent $AgentName Absent"
             if ($CurrentState.AgentStatus)
@@ -111,11 +116,11 @@ function Set-TargetResource
                 cd ($AgentPath + "\bin")
                 & $($AgentPath + "\bin\service.stop.bat")
                 & $($AgentPath + "\bin\service.uninstall.bat")
-                if($Firewall){Get-NetFirewallRule | where-object DisplayName -like "TeamCityPort: $AgentPort" | Remove-NetFirewallRule}
                 $CurrentState = Get-TargetResource @PSBoundParameters
             }
         }
-        if ($CurrentState.AgentPath -and (-not (Get-Service | where-object Name -Like "TCBuildAgent*")))
+        if($Firewall){Get-NetFirewallRule | where-object DisplayName -like "TeamCityPort: $AgentPort" | Remove-NetFirewallRule}
+        if ($CurrentState.AgentPath -and (-not (Get-Service | where-object Name -Like "TeamCity Build Agent: $AgentName")))
         {
             Write-Verbose "Removing Path Contents: $AgentPath"
             cd $env:TEMP
